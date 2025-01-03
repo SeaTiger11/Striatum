@@ -1,9 +1,9 @@
 {
   "Version": 1,
-  "WorkspaceRootPath": "C:\\Users\\svmis\\source\\repos\\Striatum\\",
+  "WorkspaceRootPath": "C:\\Users\\Riley\\OneDrive\\Desktop\\Striatum\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{F2DFAB4E-FED8-4558-9ED2-2DF71AD0EEE0}|Striatum.vcxproj|C:\\Users\\svmis\\source\\repos\\Striatum\\main.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "AbsoluteMoniker": "D:0:0:{F2DFAB4E-FED8-4558-9ED2-2DF71AD0EEE0}|Striatum.vcxproj|C:\\Users\\Riley\\OneDrive\\Desktop\\Striatum\\main.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
       "RelativeMoniker": "D:0:0:{F2DFAB4E-FED8-4558-9ED2-2DF71AD0EEE0}|Striatum.vcxproj|solutionrelative:main.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
     }
   ],
@@ -14,17 +14,21 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 0,
+          "SelectedChildIndex": 1,
           "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
+            },
             {
               "$type": "Document",
               "DocumentIndex": 0,
               "Title": "main.cpp",
-              "DocumentMoniker": "C:\\Users\\svmis\\source\\repos\\Striatum\\main.cpp",
+              "DocumentMoniker": "C:\\Users\\Riley\\OneDrive\\Desktop\\Striatum\\main.cpp",
               "RelativeDocumentMoniker": "main.cpp",
-              "ToolTip": "C:\\Users\\svmis\\source\\repos\\Striatum\\main.cpp",
+              "ToolTip": "C:\\Users\\Riley\\OneDrive\\Desktop\\Striatum\\main.cpp",
               "RelativeToolTip": "main.cpp",
-              "ViewState": "AQIAAEsAAAAAAAAAAAAAAFkAAAADAAAA",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAIgAAAA6AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
               "WhenOpened": "2024-12-29T11:37:52.056Z",
               "EditorCaption": ""

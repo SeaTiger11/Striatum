@@ -1,0 +1,4 @@
+﻿  main.cpp
+C:\Users\Riley\OneDrive\Desktop\Striatum\main.cpp(217,21): warning C4018: '<': signed/unsigned mismatch
+C:\Users\Riley\OneDrive\Desktop\Striatum\main.cpp(381): warning C4715: 'HelloTriangleApplication::checkValidationLayerSupport': not all control paths return a value
+  Striatum.vcxproj -> C:\Users\Riley\OneDrive\Desktop\Striatum\x64\Debug\Striatum.exe
