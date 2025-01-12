@@ -1,6 +1,6 @@
 ﻿  main.cpp
   GLM_GTX_hash requires C++11 standard library support
-C:\Users\Riley\OneDrive\Desktop\Striatum\main.cpp(333,21): warning C4018: '<': signed/unsigned mismatch
-C:\Users\Riley\OneDrive\Desktop\Striatum\main.cpp(1188): warning C4715: 'HelloTriangleApplication::checkValidationLayerSupport': not all control paths return a value
-LINK : warning LNK4098: defaultlib 'MSVCRT' conflicts with use of other libs; use /NODEFAULTLIB:library
+C:\Users\Riley\OneDrive\Desktop\Striatum\main.cpp(298,21): warning C4018: '<': signed/unsigned mismatch
+C:\Users\Riley\OneDrive\Desktop\Striatum\main.cpp(935,21): warning C4244: '=': conversion from 'VkDeviceSize' to 'uint32_t', possible loss of data
+C:\Users\Riley\OneDrive\Desktop\Striatum\main.cpp(1198): warning C4715: 'HelloTriangleApplication::checkValidationLayerSupport': not all control paths return a value
   Striatum.vcxproj -> C:\Users\Riley\OneDrive\Desktop\Striatum\x64\Debug\Striatum.exe
