@@ -141,14 +141,19 @@ private:
 
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
-	VkBuffer indexBuffer;
-	VkDeviceMemory indexBufferMemory;
+	VkBuffer uiVertexBuffer;
+	VkDeviceMemory uiVertexBufferMemory;
+	VkBuffer attackVertexBuffer;
+	VkDeviceMemory attackVertexBufferMemory;
+	std::vector<VkBuffer> enemyVertexBuffers;
+	std::vector<VkDeviceMemory> enemyVertexBufferMemories;
 
-	uint32_t maxIndicesCount;
+	uint32_t maxVerticesCount;
 
 	std::vector<VkBuffer> vertexUniformBuffers;
 	std::vector<VkDeviceMemory> vertexUniformBuffersMemory;
 	std::vector<void*> vertexUniformBuffersMapped;
+	VertexUniformBufferObject vubo;
 
 	std::vector<VkBuffer> fragmentUniformBuffers;
 	std::vector<VkDeviceMemory> fragmentUniformBuffersMemory;
@@ -179,14 +184,28 @@ private:
 	std::chrono::steady_clock::time_point lastUpdate = std::chrono::steady_clock::now();
 
 	float deltaTime;
-	double lastTime, currentTime, miningCooldown = 0.05, currentCooldown = miningCooldown;
+	double lastTime, currentTime, miningCooldown = 0.05, currentMiningCooldown = miningCooldown;
 	int numFrames;
 
 	bool framebufferResized = false;
 
-	std::vector<voxelSphere> asteroids;
+	std::vector<voxelObj> asteroids;
+	std::vector<voxelObj> enemies;
 
-	float ironStored = 0;
+	float ironStored = 10.0f, minIronStored = ironStored, ironMultiplier = 3.0f;
+
+	glm::mat4 initialView;
+	float fov = 0.45f, nearPlane = 0.1f, farPlane = 100.0f;
+
+	int uniqueUniformCount = 3;
+
+	voxelObj ironUI = voxelObj(glm::vec3(-100.0f, 0.0f, -30.0f), 10.0f, 0, 1);
+
+	voxelObj attack = voxelObj(glm::vec3(0.0f, 0.0f, 0.0f), 3.0f, 0, 1);
+	glm::mat4 attackInfos[maxNumberOfAttacks];
+	int currentAttackCount = 0;
+	double attackCooldown = 0.1, currentAttackCooldown = attackCooldown, collisionCheckCooldown = 0.01, currentCollisionCheckCooldown;
+	float attackIronCost = 1.0f, explosionStrength = 3.0f;
 
 	// Create a window with glfw
 	void initWindow() {
@@ -225,16 +244,17 @@ private:
 		createTextureImage();
 		createTextureImageView();
 		createTextureSampler();
-		//loadModel();
-		loadCubes();
+		createCamera();
+		loadVoxels();
 		createVertexBuffer();
-		createIndexBuffer();
+		createUIBuffers();
+		createAttackBuffer();
+		createEnemyBuffers();
 		createUniformBuffers();
 		createDescriptorPool();
 		createDescriptorSets();
 		createCommandBuffers();
 		createSyncObjects();
-		createCamera();
 	}
 
 	// Creates an instance which is what connects the application to the vulkan libary
@@ -617,7 +637,8 @@ private:
 
 		std::vector<VkDynamicState> dynamicStates = {
 			VK_DYNAMIC_STATE_VIEWPORT,
-			VK_DYNAMIC_STATE_SCISSOR
+			VK_DYNAMIC_STATE_SCISSOR,
+			VK_DYNAMIC_STATE_DEPTH_BIAS
 		};
 
 		VkPipelineDynamicStateCreateInfo dynamicState{};
@@ -641,8 +662,8 @@ private:
 		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
 		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
-		// Depth value modification disabled
-		rasterizer.depthBiasEnable = VK_FALSE;
+		// Depth value modification enabled
+		rasterizer.depthBiasEnable = VK_TRUE;
 		rasterizer.depthBiasConstantFactor = 0.0f;
 		rasterizer.depthBiasClamp = 0.0f;
 		rasterizer.depthBiasSlopeFactor = 0.0f;
@@ -849,66 +870,38 @@ private:
 			throw std::runtime_error("Failed to create texture sampler");
 	}
 
-	/*
-	void loadModel() {
-		tinyobj::attrib_t attrib;
-		std::vector<tinyobj::shape_t> shapes;
-		std::vector<tinyobj::material_t> materials;
-		std::string warn, err;
-
-		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str()))
-			throw std::runtime_error(warn + err);
-
-		std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
-		for (const auto& shape : shapes) {
-			for (const auto& index : shape.mesh.indices) {
-				Vertex vertex{};
-
-				vertex.pos = {
-					attrib.vertices[3 * index.vertex_index + 0],
-					attrib.vertices[3 * index.vertex_index + 1],
-					attrib.vertices[3 * index.vertex_index + 2]
-				};
-
-				vertex.normal = {
-					attrib.vertices[3 * index.normal_index + 0],
-					attrib.vertices[3 * index.normal_index + 1],
-					attrib.vertices[3 * index.normal_index + 2]
-				};
-
-				vertex.color = { 1.0f, 1.0f, 1.0f };
-
-				vertex.texCoord = {
-					attrib.texcoords[2 * index.texcoord_index + 0],
-					1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-				};
-
-				if (uniqueVertices.count(vertex) == 0) {
-					uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-					vertices.push_back(vertex);
-				}
-
-				indices.push_back(uniqueVertices[vertex]);
-			}
-		}
+	// Creates the camera object
+	void createCamera() {
+		camera = new Camera(swapChainExtent.width, swapChainExtent.height);
+		initialView = camera->GetUpdatedMatrix(fov, nearPlane, farPlane).view;
 	}
-	*/
 
-	void loadCubes() {
+	void loadVoxels() {
 		VkDeviceSize offset = 0;
 
-		voxelSphere newAsteroid = voxelSphere(glm::vec3(100.0f), 20.0f, offset);
+		voxelObj enemy = voxelObj(glm::vec3(-50.0f, -30.0f, 15.0f), 5.0f, 0, 2);
+		enemy.generateEnemy();
+		enemies.push_back(enemy);
+
+		voxelObj enemy2 = voxelObj(glm::vec3(-50.0f, 0.0f, 20.0f), 10.0f, 0, 2);
+		enemy2.generateEnemy();
+		enemies.push_back(enemy2);
+
+		voxelObj enemy3 = voxelObj(glm::vec3(-50.0f, 30.0f, 15.0f), 5.0f, 0, 2);
+		enemy3.generateEnemy();
+		enemies.push_back(enemy3);
+
+		voxelObj newAsteroid = voxelObj(glm::vec3(50.0f), 20.0f, offset);
 		offset += newAsteroid.getData().maxSize;
 		newAsteroid.generateSphere();
 		asteroids.push_back(newAsteroid);
 
-		voxelSphere newAsteroid2 = voxelSphere(glm::vec3(0.0f, 0.0f, 0.0f), 10.0f, offset);
+		voxelObj newAsteroid2 = voxelObj(glm::vec3(0.0f, 0.0f, 0.0f), 10.0f, offset);
 		offset += newAsteroid2.getData().maxSize;
 		newAsteroid2.generateSphere();
 		asteroids.push_back(newAsteroid2);
 
-		voxelSphere newAsteroid3 = voxelSphere(glm::vec3(0.0f, 50.0f, 0.0f), 20.0f, offset);
+		voxelObj newAsteroid3 = voxelObj(glm::vec3(0.0f, 50.0f, 0.0f), 20.0f, offset);
 		offset += newAsteroid3.getData().maxSize;
 		newAsteroid3.generateSphere();
 		asteroids.push_back(newAsteroid3);
@@ -917,45 +910,93 @@ private:
 	// Creates the vertex buffer
 	void createVertexBuffer() {
 		VkDeviceSize combinedMaxSize = 0;
-		for (voxelSphere asteroid : asteroids)
+		for (voxelObj asteroid : asteroids)
 			combinedMaxSize += asteroid.getData().maxSize;
+		maxVerticesCount = combinedMaxSize;
 		VkDeviceSize maxVertexBufferSize = sizeof(asteroids[0].getData().vertices[0]) * combinedMaxSize;
 
 		createBuffer(maxVertexBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
 
-		for (voxelSphere asteroid : asteroids)
-			updateVertexBuffer(asteroid.getData());
+		for (voxelObj asteroid : asteroids)
+			updateBuffer(vertexBuffer, asteroid.getData());
 	}
 
-	// Creates the index buffer
-	void createIndexBuffer() {
-		VkDeviceSize combinedMaxSize = 0;
-		for (voxelSphere asteroid : asteroids)
-			combinedMaxSize += asteroid.getData().maxSize;
-		maxIndicesCount = combinedMaxSize;
-		VkDeviceSize maxIndexBufferSize = sizeof(asteroids[0].getData().indices[0]) * combinedMaxSize;
+	// Creates the voxel sphere that acts as the iron stored indicator
+	void createUIBuffers() {
+		modelData model = ironUI.getData();
 
-		createBuffer(maxIndexBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
+		ironUI.setPosition(model.position + camera->position);
 
-		for (voxelSphere asteroid : asteroids)
-			updateIndexBuffer(asteroid.getData());
+		VkDeviceSize maxUiVertexBufferSize = sizeof(model.vertices[0]) * model.maxSize;
+
+		createBuffer(maxUiVertexBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, uiVertexBuffer, uiVertexBufferMemory);
+
+		ironUI.realRadius = glm::min(sphereVolumeToRadius(ironStored), ironUI.maxRadius);
+		ironUI.shouldUpdate();
+
+		ironUI.generateSphere();
+		model = ironUI.getData();
+
+		VkDeviceSize vertexBufferSize = sizeof(model.vertices[0]) * model.vertices.size();
+
+		clearBuffer(uiVertexBuffer);
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		createBuffer(vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		void* data;
+		vkMapMemory(device, stagingBufferMemory, 0, vertexBufferSize, 0, &data);
+		memcpy(data, model.vertices.data(), (size_t)vertexBufferSize);
+		vkUnmapMemory(device, stagingBufferMemory);
+
+		copyBuffer(stagingBuffer, uiVertexBuffer, vertexBufferSize, 0);
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
+	}
+
+	void createAttackBuffer() {
+		modelData model = attack.getData();
+		VkDeviceSize maxBufferSize = sizeof(model.vertices[0]) * model.maxSize;
+
+		createBuffer(maxBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, attackVertexBuffer, attackVertexBufferMemory);
+
+		attack.generateSphere();
+
+		updateBuffer(attackVertexBuffer, attack.getData());
+	}
+
+	void createEnemyBuffers() {
+		enemyVertexBuffers.resize(enemies.size());
+		enemyVertexBufferMemories.resize(enemies.size());
+		uniqueUniformCount += enemies.size();
+
+		for (int i = 0; i < enemies.size(); i++) {
+			modelData model = enemies[i].getData();
+			VkDeviceSize maxBufferSize = sizeof(model.vertices[0]) * model.maxSize;
+
+			createBuffer(maxBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, enemyVertexBuffers[i], enemyVertexBufferMemories[i]);
+
+			updateBuffer(enemyVertexBuffers[i], model);
+		}
 	}
 
 	// Creates uniform buffers
 	void createUniformBuffers() {
 		VkDeviceSize maxVertexBufferSize = sizeof(VertexUniformBufferObject);
 
-		vertexUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		vertexUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-		vertexUniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+		vertexUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
+		vertexUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
+		vertexUniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
 
 		VkDeviceSize fragmentBufferSize = sizeof(FragmentUniformBufferObject);
 
-		fragmentUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		fragmentUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-		fragmentUniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+		fragmentUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
+		fragmentUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
+		fragmentUniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
 
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT * uniqueUniformCount; i++) {
 			createBuffer(maxVertexBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexUniformBuffers[i], vertexUniformBuffersMemory[i]);
 
 			vkMapMemory(device, vertexUniformBuffersMemory[i], 0, maxVertexBufferSize, 0, &vertexUniformBuffersMapped[i]);
@@ -970,17 +1011,17 @@ private:
 	void createDescriptorPool() {
 		std::array<VkDescriptorPoolSize, 3> poolSizes{};
 		poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+		poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
 		poolSizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+		poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
 		poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		poolSizes[2].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+		poolSizes[2].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
 
 		VkDescriptorPoolCreateInfo poolInfo{};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
 		poolInfo.pPoolSizes = poolSizes.data();
-		poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+		poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
 
 		if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create descriptor pool!");
@@ -988,18 +1029,18 @@ private:
 
 	// Allocates the descriptor sets 
 	void createDescriptorSets() {
-		std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+		std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount, descriptorSetLayout);
 		VkDescriptorSetAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 		allocInfo.descriptorPool = descriptorPool;
-		allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+		allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
 		allocInfo.pSetLayouts = layouts.data();
 
-		descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+		descriptorSets.resize(MAX_FRAMES_IN_FLIGHT * uniqueUniformCount);
 		if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS)
 			throw std::runtime_error("Failed to allocate descriptor sets!");
 
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT * uniqueUniformCount; i++) {
 			VkDescriptorBufferInfo vertexBufferInfo{};
 			vertexBufferInfo.buffer = vertexUniformBuffers[i];
 			vertexBufferInfo.offset = 0;
@@ -1079,11 +1120,6 @@ private:
 		}
 	}
 
-	// Creates the camera object
-	void createCamera() {
-		camera = new Camera(swapChainExtent.width, swapChainExtent.height);
-	}
-
 	/*---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
 	// Fill out the debug messenger struct with relevant info
@@ -1110,7 +1146,7 @@ private:
 		VkPhysicalDeviceFeatures supportedFeatures;
 		vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
-		return indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
+		return indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy && supportedFeatures.depthBiasClamp;
 	}
 
 	// Checks if the given device has all the required extensions
@@ -1326,7 +1362,7 @@ private:
 		renderPassInfo.renderArea.extent = swapChainExtent;
 
 		std::array<VkClearValue, 2> clearValues{};
-		clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+		clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
 		clearValues[1].depthStencil = { 1.0f, 0 };
 
 		renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
@@ -1335,7 +1371,7 @@ private:
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-		
+
 		VkViewport viewport{};
 		viewport.x = 0.0f;
 		viewport.y = 0.0f;
@@ -1350,15 +1386,43 @@ private:
 		scissor.extent = swapChainExtent;
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-		VkBuffer vertexBuffers[] = { vertexBuffer };
+		vkCmdSetDepthBias(commandBuffer, 0, 0, 0);
+
+		VkBuffer vertexBuffersBinder[] = { vertexBuffer };
 		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersBinder, offsets);
 
-		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame * uniqueUniformCount], 0, nullptr);
 
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+		vkCmdDraw(commandBuffer, maxVerticesCount, 1, 0, 0);
 
-		vkCmdDrawIndexed(commandBuffer, maxIndicesCount, 1, 0, 0, 0);
+		for (int i = 0; i < enemies.size(); i++) {
+			VkBuffer enemyVertexBuffersBinder[] = { enemyVertexBuffers[i] };
+			vkCmdBindVertexBuffers(commandBuffer, 0, 1, enemyVertexBuffersBinder, offsets);
+
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame * uniqueUniformCount + i + 1], 0, nullptr);
+
+			vkCmdDraw(commandBuffer, enemies[i].getData().maxSize, 1, 0, 0);
+		}
+
+
+		VkBuffer attackVertexBuffersBinder[] = { attackVertexBuffer };
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, attackVertexBuffersBinder, offsets);
+
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame * uniqueUniformCount + enemies.size() + 1], 0, nullptr);
+
+		vkCmdDraw(commandBuffer, attack.getData().maxSize, glm::min(currentAttackCount, maxNumberOfAttacks), 0, 0);
+
+
+
+		vkCmdSetDepthBias(commandBuffer, -100000000, 0, 0);
+
+		VkBuffer uiVertexBuffersBinder[] = { uiVertexBuffer };
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, uiVertexBuffersBinder, offsets);
+
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame * uniqueUniformCount + enemies.size() + 2], 0, nullptr);
+
+		vkCmdDraw(commandBuffer, ironUI.getData().maxSize, 1, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
 
@@ -1460,13 +1524,30 @@ private:
 	void updateCamera(uint32_t currentImage) {
 		camera->Inputs(window, deltaTime);
 
-		VertexUniformBufferObject vubo = camera->GetUpdatedMatrix(45.0f, 0.1f, 1000.0f);
+		vubo = camera->GetUpdatedMatrix(45.0f, 0.1f, 1000.0f);
 
-		memcpy(vertexUniformBuffersMapped[currentImage], &vubo, sizeof(vubo));
+		vubo.models[0] = glm::mat4(1.0f);
+		memcpy(vertexUniformBuffersMapped[currentImage * uniqueUniformCount], &vubo, sizeof(vubo));
+
+		for (int i = 0; i < enemies.size(); i++) {
+			vubo.models[0] = glm::mat4(1.0f);
+
+			memcpy(vertexUniformBuffersMapped[currentImage * uniqueUniformCount + 1 + i], &vubo, sizeof(vubo));
+		}
+
+		glm::mat4 attackModels[maxNumberOfAttacks];
+		for (int i = 0; i < maxNumberOfAttacks; i++)
+			vubo.models[i] = attackInfos[i];
+
+		memcpy(vertexUniformBuffersMapped[currentImage * uniqueUniformCount + enemies.size() + 1], &vubo, sizeof(vubo));
+
+		vubo.view = initialView;
+		vubo.models[0] = glm::mat4(1.0f);
+		memcpy(vertexUniformBuffersMapped[currentImage * uniqueUniformCount + enemies.size() + 2], &vubo, sizeof(vubo));
 
 		FragmentUniformBufferObject fubo = { camera->position };
 
-		memcpy(fragmentUniformBuffersMapped[currentFrame], &fubo, sizeof(fubo));
+		memcpy(fragmentUniformBuffersMapped[currentImage * uniqueUniformCount], &fubo, sizeof(fubo));
 	}
 
 	// Creates an image based on the supplied parameters
@@ -1802,10 +1883,10 @@ private:
 		endSingleTimeCommands(commandBuffer);
 	}
 
-	void updateVertexBuffer(modelData model) {
+	void updateBuffer(VkBuffer buffer, modelData model) {
 		VkDeviceSize vertexBufferSize = sizeof(model.vertices[0]) * model.vertices.size();
 
-		clearBuffer(vertexBuffer, model.verticesOffset, sizeof(model.vertices[0]) * model.maxSize);
+		clearBuffer(buffer, model.verticesOffset, sizeof(model.vertices[0]) * model.maxSize);
 
 		VkBuffer stagingBuffer;
 		VkDeviceMemory stagingBufferMemory;
@@ -1816,73 +1897,58 @@ private:
 		memcpy(data, model.vertices.data(), (size_t)vertexBufferSize);
 		vkUnmapMemory(device, stagingBufferMemory);
 
-		copyBuffer(stagingBuffer, vertexBuffer, vertexBufferSize, model.verticesOffset);
+		copyBuffer(stagingBuffer, buffer, vertexBufferSize, model.verticesOffset);
 
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
 
-	void updateIndexBuffer(modelData model) {
-		VkDeviceSize indexBufferSize = sizeof(model.indices[0]) * model.indices.size();
-
-		clearBuffer(indexBuffer, model.indicesOffset, sizeof(model.indices[0]) * model.maxSize);
-
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
-		createBuffer(indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-		void* data;
-		vkMapMemory(device, stagingBufferMemory, 0, indexBufferSize, 0, &data);
-		memcpy(data, model.indices.data(), (size_t)indexBufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
-
-		copyBuffer(stagingBuffer, indexBuffer, indexBufferSize, model.indicesOffset);
-
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
-	} 
-
-	void rebuildSphere(voxelSphere& asteroid) {
-		if (!asteroid.shouldUpdate()) return;
-
-		modelData asteroidData = asteroid.generateSphere();
-		updateVertexBuffer(asteroidData);
-		updateIndexBuffer(asteroidData);
+	inline float sphereVolumeToRadius(float volume) {
+		return glm::pow(volume / (4.0f / 3.0f * glm::pi<float>()), 1.0f / 3.0f);
 	}
 
-	void mine(float speed) {
-		glm::vec3 d = normalize(camera->orientation);
-		for (voxelSphere& asteroid : asteroids) {
-			glm::vec3 a = asteroid.getData().position * voxelScale;
-			glm::vec3 b = camera->position;
-			glm::vec3 v = a - b;
-			float t = glm::dot(v, d);
-			glm::vec3 p = b + t * d;
+	void updateUI() {
+		ironUI.realRadius = glm::min(sphereVolumeToRadius(ironStored), ironUI.maxRadius);
 
-			float distance = glm::distance(p, a);
+		if (!ironUI.shouldUpdate()) return;
 
-			if (distance < asteroid.currentRadius) {
-				asteroid.realRadius -= speed * deltaTime;
-				rebuildSphere(asteroid);
-			}
-		}
+		modelData asteroidData = ironUI.generateSphere();
+		updateBuffer(uiVertexBuffer, asteroidData);
 	}
 
-	void updateSphere(voxelSphere& asteroid) {
+	void updateVoxelObj(VkBuffer buffer, voxelObj& asteroid) {
 		modelData asteroidData = asteroid.updateMarchingCubes();
-		updateVertexBuffer(asteroidData);
-		updateIndexBuffer(asteroidData);
+		updateBuffer(buffer, asteroidData);
 	}
 
-	void shoot() {
-		for (voxelSphere& asteroid : asteroids) {
+	void mine() {
+		for (voxelObj& asteroid : asteroids) {
 			rayCastHit rayCastResult = asteroid.rayCast(camera->position, camera->orientation);
 			if (!rayCastResult.hit) continue;
 			*rayCastResult.voxel = -1.0f;
-			ironStored += rayCastResult.ironContent;
+			ironStored += rayCastResult.ironContent * ironMultiplier;
 
-			updateSphere(asteroid);
+			updateVoxelObj(vertexBuffer, asteroid);
+
+			updateUI();
 		}
+	}
+
+	void shoot() {
+		// Sets attack position on camera position with the camera rotation
+		glm::mat4 attackMat = glm::inverse(glm::lookAt(camera->position, camera->position + camera->orientation, camera->up));
+
+		// Offsets attack forwards
+		attackMat = glm::translate(attackMat, glm::vec3(0.0f, 0.0f, -5.0f));
+
+		// Scales down attack
+		attackMat = glm::scale(attackMat, glm::vec3(0.1f));
+
+		attackInfos[currentAttackCount % maxNumberOfAttacks] = attackMat;
+		currentAttackCount++;
+
+		ironStored -= attackIronCost * ironMultiplier;
+		updateUI();
 	}
 
 	/*---------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -1891,7 +1957,65 @@ private:
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
+
+			auto now = std::chrono::steady_clock::now();
+			deltaTime = std::chrono::duration_cast<std::chrono::microseconds>(now - lastUpdate).count() / 1000000.0f;
+			lastUpdate = now;
+
+			updateCamera(currentFrame);
+
+			currentMiningCooldown -= deltaTime;
+			currentAttackCooldown -= deltaTime;
+			currentCollisionCheckCooldown -= deltaTime;
+
+			if (currentMiningCooldown <= 0 && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
+				mine();
+
+				currentMiningCooldown = miningCooldown;
+			}
+
+			if (ironStored > minIronStored + attackIronCost && currentAttackCooldown <= 0 && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+				shoot();
+
+				currentAttackCooldown = attackCooldown;
+			}
+
+			if (currentCollisionCheckCooldown <= 0) {
+				for (int i = 0; i < glm::min(currentAttackCount, maxNumberOfAttacks); i++) {
+					if (attackInfos[i] == glm::mat4(0.0f)) continue;
+
+					attackInfos[i] = glm::translate(attackInfos[i], glm::vec3(0.0f, 0.0f, -1000.0 * collisionCheckCooldown));
+
+					glm::vec3 attackPos = glm::vec3(attackInfos[i][3]);
+
+					for (voxelObj asteroid : asteroids) {
+						bool hit = asteroid.tryExplode(attackPos, explosionStrength);
+						if (!hit)
+							continue;
+
+						attackInfos[i] = glm::mat4(0.0f);
+
+						updateVoxelObj(vertexBuffer, asteroid);
+					}
+
+					for (int e = 0; e < enemies.size(); e++) {
+						bool hit = enemies[e].tryExplode(attackPos, explosionStrength);
+						if (!hit)
+							continue;
+
+						attackInfos[i] = glm::mat4(0.0f);
+
+						modelData model = enemies[e].getData();
+
+						updateVoxelObj(enemyVertexBuffers[e], enemies[e]);
+					}
+				}
+
+				currentCollisionCheckCooldown = collisionCheckCooldown;
+			}
+
 			drawFrame();
+
 			calculateFrameRate();
 		}
 
@@ -1901,17 +2025,6 @@ private:
 	// Draws the frames
 	void drawFrame() {
 		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-
-		auto now = std::chrono::steady_clock::now();
-		deltaTime = std::chrono::duration_cast<std::chrono::microseconds>(now - lastUpdate).count() / 1000000.0f;
-		lastUpdate = now;
-
-		currentCooldown -= deltaTime;
-		
-		if (currentCooldown <= 0 && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
-			currentCooldown = miningCooldown;
-			shoot();
-		}
 
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
@@ -1929,8 +2042,6 @@ private:
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
-
-		updateCamera(currentFrame);
 
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1987,7 +2098,7 @@ private:
 		vkDestroyImage(device, textureImage, nullptr);
 		vkFreeMemory(device, textureImageMemory, nullptr);
 
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT * uniqueUniformCount; i++) {
 			vkDestroyBuffer(device, vertexUniformBuffers[i], nullptr);
 			vkFreeMemory(device, vertexUniformBuffersMemory[i], nullptr);
 			vkDestroyBuffer(device, fragmentUniformBuffers[i], nullptr);
@@ -1998,8 +2109,16 @@ private:
 
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
-		vkDestroyBuffer(device, indexBuffer, nullptr);
-		vkFreeMemory(device, indexBufferMemory, nullptr);
+		for (int i = 0; i < enemies.size(); i++) {
+			vkDestroyBuffer(device, enemyVertexBuffers[i], nullptr);
+			vkFreeMemory(device, enemyVertexBufferMemories[i], nullptr);
+		}
+
+		vkDestroyBuffer(device, attackVertexBuffer, nullptr);
+		vkFreeMemory(device, attackVertexBufferMemory, nullptr);
+
+		vkDestroyBuffer(device, uiVertexBuffer, nullptr);
+		vkFreeMemory(device, uiVertexBufferMemory, nullptr);
 
 		vkDestroyBuffer(device, vertexBuffer, nullptr);
 		vkFreeMemory(device, vertexBufferMemory, nullptr);

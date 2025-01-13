@@ -280,10 +280,11 @@ const siv::PerlinNoise perlin;
 
 constexpr int MAX_RAYCAST_STEPS = 128;
 
-voxelSphere::voxelSphere(glm::vec3 inPosition, float inRadius, VkDeviceSize inOffset) {
+voxelObj::voxelObj(glm::vec3 inPosition, float inRadius, VkDeviceSize inOffset, int inMatType) {
     model.position = inPosition;
     currentRadius = inRadius;
     realRadius = inRadius;
+    maxRadius = inRadius;
 
     scale = glm::uvec3((inRadius + 2) * 2);
     grid = new float[scale.x * scale.y * scale.z];
@@ -291,20 +292,18 @@ voxelSphere::voxelSphere(glm::vec3 inPosition, float inRadius, VkDeviceSize inOf
     offset = inOffset;
 
     model.verticesOffset = inOffset * sizeof(model.vertices[0]);
-    model.indicesOffset = inOffset * sizeof(model.indices[0]);
     model.maxSize = scale.x * scale.y * scale.z * 15;
+
+    matType = inMatType;
 }
 
-modelData voxelSphere::generateSphere() {
-    for (uint32_t x = 0; x < scale.x; x++) {
-        for (uint32_t y = 0; y < scale.y; y++) {
-            for (uint32_t z = 0; z < scale.z; z++) {
-                float xGap = x - center.x;
-                float yGap = y - center.y;
-                float zGap = z - center.z;
-                float distance = std::sqrt(xGap * xGap + yGap * yGap + zGap * zGap);
+modelData voxelObj::generateSphere() {
+    for (float x = 0; x < scale.x; x++) {
+        for (float y = 0; y < scale.y; y++) {
+            for (float z = 0; z < scale.z; z++) {
+                float distance = glm::distance(glm::vec3(x, y, z), center);
 
-                getVoxel({ x, y, z }) = currentRadius - distance;
+                *getVoxel({ x, y, z }) = currentRadius - distance;
             }
         }
     }
@@ -314,9 +313,27 @@ modelData voxelSphere::generateSphere() {
     return model;
 }
 
-modelData voxelSphere::updateMarchingCubes() {
+modelData voxelObj::generateEnemy() {
+    for (float x = 0; x < scale.x; x++) {
+        for (float y = 0; y < scale.y; y++) {
+            for (float z = 0; z < scale.z; z++) {
+                if (x == 0 || x == scale.x - 1 || y == 0 || y == scale.y - 1 || z == 0 || z == scale.z - 1) {
+                    *getVoxel({ x, y, z }) = -1;
+                    continue;
+                }
+
+                *getVoxel({ x, y, z }) = 1;
+            }
+        }
+    }
+
+    updateMarchingCubes();
+
+    return model;
+}
+
+modelData voxelObj::updateMarchingCubes() {
     model.vertices.clear();
-    model.indices.clear();
 
     for (uint32_t x = 0; x < scale.x - 1; x++) {
         for (uint32_t y = 0; y < scale.y - 1; y++) {
@@ -329,11 +346,15 @@ modelData voxelSphere::updateMarchingCubes() {
     return model;
 }
 
-modelData voxelSphere::getData() {
+modelData voxelObj::getData() {
     return model;
 }
 
-bool voxelSphere::shouldUpdate() {
+void voxelObj::setPosition(glm::vec3 newPosition) {
+    model.position = newPosition / voxelScale;
+}
+
+bool voxelObj::shouldUpdate() {
     bool check = abs(currentRadius - realRadius) > updatePoint;
     if (check)
         currentRadius = realRadius;
@@ -341,24 +362,48 @@ bool voxelSphere::shouldUpdate() {
     return check;
 }
 
-float& voxelSphere::getVoxel(glm::uvec3 pos) {
-	return grid[pos.x + pos.y * scale.x + pos.z * scale.x * scale.y];
+float* voxelObj::getVoxel(glm::uvec3 pos) {
+    if (pos.x < 0 || pos.x > scale.x || pos.y < 0 || pos.y > scale.y || pos.z < 0 || pos.z > scale.z)
+        return nullptr;
+
+	return &grid[pos.x + pos.y * scale.x + pos.z * scale.x * scale.y];
 }
 
-void voxelSphere::addVertex(glm::vec3 pos, glm::vec3 normal, glm::vec3 color, glm::vec2 texCoord) {
-    float ironContent = perlin.noise3D_01(pos.x * ironSize, pos.y * ironSize, pos.z * ironSize);
-    if (ironContent < ironCutOff) ironContent = 0.0f;
-    color = glm::vec3(0.5f) + glm::vec3(0.7f, 0.27f, 0.0f) * ironContent;
+bool voxelObj::AABB(glm::vec3 minPosition, glm::vec3 maxPosition, glm::vec3 position) {
+    return !(position.x < minPosition.x || position.x > maxPosition.x || position.y < minPosition.y || position.y > maxPosition.y || position.z < minPosition.z || position.z > maxPosition.z);
+}
+
+glm::vec3 voxelObj::getColor(glm::vec3 pos) {
+    if (matType == 2) {
+        for (int i = 0; i < colorOverides.size(); i++) {
+            if (AABB(colorOverides[i].minPosition, colorOverides[i].maxPosition, pos / glm::vec3(scale - glm::uvec3(1))))
+                return colorOverides[i].color;
+        }
+
+        return glm::vec3(1.0f, 0.34f, 0.2f) * glm::vec3(perlin.noise3D_01(pos.x * ironSize, pos.y * ironSize, pos.z * ironSize) + 0.5f);
+    }
+    if (matType == 1) {
+        return glm::vec3(0.5f) + glm::vec3(0.7f, 0.27f, 0.0f);
+    }
+    if (matType == 0) {
+        float ironContent = perlin.noise3D_01(pos.x * ironSize, pos.y * ironSize, pos.z * ironSize);
+        if (ironContent < ironCutOff) ironContent = 0.0f;
+        return glm::vec3(0.5f) + glm::vec3(0.7f, 0.27f, 0.0f) * ironContent;
+    }
+    return glm::vec3(0.5f);
+}
+
+void voxelObj::addVertex(glm::vec3 pos, glm::vec3 normal, glm::vec3 color, glm::vec2 texCoord) {
+    color = getColor(pos);
 
     pos = (pos + model.position - center) * voxelScale;
 
     Vertex vertex = { pos, normal, color, texCoord };
 
-    model.indices.push_back(model.vertices.size() + offset);
     model.vertices.push_back(vertex);
 }
 
-void voxelSphere::processCube(glm::uvec3 pos) {
+void voxelObj::processCube(glm::uvec3 pos) {
     glm::vec3 cornerCoords[8];
     cornerCoords[0] = pos;
     cornerCoords[1] = pos + glm::uvec3(1, 0, 0);
@@ -371,7 +416,7 @@ void voxelSphere::processCube(glm::uvec3 pos) {
 
     int cubeConfig = 0;
     for (int i = 0; i < 8; i++) {
-        if (getVoxel(cornerCoords[i]) < 0) {
+        if (*getVoxel(cornerCoords[i]) < 0.0f) {
             cubeConfig |= (1 << i);
         }
     }
@@ -402,11 +447,11 @@ void voxelSphere::processCube(glm::uvec3 pos) {
     }
 }
 
-glm::vec3 voxelSphere::computeNormal(glm::vec3 a, glm::vec3 b, glm::vec3 c) {
+glm::vec3 voxelObj::computeNormal(glm::vec3 a, glm::vec3 b, glm::vec3 c) {
     return glm::normalize(glm::cross(b - a, c - a));
 }
 
-std::optional<float> voxelSphere::rayAABB(glm::vec3 gridMin, glm::vec3 gridMax, glm::vec3 origin, glm::vec3 direction) {
+std::optional<float> voxelObj::rayAABB(glm::vec3 gridMin, glm::vec3 gridMax, glm::vec3 origin, glm::vec3 direction) {
     float tmin = 0, tmax = 1e30f;
 
     for (int axis = 0; axis < 3; ++axis) {
@@ -430,7 +475,7 @@ inline glm::vec3 signOfVec(const glm::vec3& v) {
     return glm::vec3(getsign(v.x), getsign(v.y), getsign(v.z));
 }
 
-rayCastHit voxelSphere::rayCast(glm::vec3 origin, glm::vec3 direction) {
+rayCastHit voxelObj::rayCast(glm::vec3 origin, glm::vec3 direction) {
     direction = normalize(direction);
     const glm::vec3 fscale = glm::vec3(scale);
 
@@ -455,7 +500,7 @@ rayCastHit voxelSphere::rayCast(glm::vec3 origin, glm::vec3 direction) {
     int axis = 0;
     for (int steps = 0; steps < MAX_RAYCAST_STEPS; ++steps) {
         /* Check if we hit a voxel which isn't 0 */
-        float& voxel = getVoxel(pos);
+        float& voxel = *getVoxel(pos);
         if (voxel >= 0) {
             float ironContent = perlin.noise3D_01(pos.x * ironSize, pos.y * ironSize, pos.z * ironSize);
             if (ironContent < ironCutOff) ironContent = 0.0f;
@@ -494,4 +539,23 @@ rayCastHit voxelSphere::rayCast(glm::vec3 origin, glm::vec3 direction) {
     }
 
     return rayCastMiss;
+}
+
+bool voxelObj::tryExplode(glm::vec3 position, float explosionRadius) {
+    glm::vec3 localPos = glm::vec3((position / glm::vec3(voxelScale)) - model.position + center);
+    float* voxel = getVoxel(localPos);
+    if (voxel == nullptr || *voxel < 0)
+        return false;
+
+    for (float x = 0.0f; x < scale.x; x++) {
+        for (float y = 0.0f; y < scale.y; y++) {
+            for (float z = 0.0f; z < scale.z; z++) {
+                float distance = glm::distance(glm::vec3(x, y, z), localPos);
+                if (explosionRadius - distance > 0)
+                    *getVoxel({ x, y, z }) = -1;
+            }
+        }
+    }
+
+    return true;
 }

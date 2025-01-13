@@ -1,9 +1,11 @@
 #version 450
 
+const int maxNumberOfAttacks = 15;
+
 layout(binding = 0) uniform VertexUniformBufferObject {
-	mat4 model;
 	mat4 view;
 	mat4 proj;
+	mat4 models[maxNumberOfAttacks];
 } vubo;
 
 layout (location = 0) in vec3 inPosition;
@@ -17,10 +19,12 @@ layout (location = 2) out vec3 fragColor;
 layout (location = 3) out vec2 fragTexCoord;
 
 void main() {
-	fragPos = (vubo.model * vec4(inPosition, 0.0)).xyz;
-	fragNormal = normalize((vubo.model * vec4(inNormal, 0.0)).xyz);
+	mat4 model = vubo.models[gl_InstanceIndex];
+
+	fragPos = (model * vec4(inPosition, 0.0)).xyz;
+	fragNormal = normalize((model * vec4(inNormal, 0.0)).xyz);
 	fragColor = inColor;
 	fragTexCoord = inTexCoord;
 
-	gl_Position = vubo.proj * vubo.view * vubo.model * vec4(inPosition, 1.0);
+	gl_Position = vubo.proj * vubo.view * model * vec4(inPosition, 1.0);
 }

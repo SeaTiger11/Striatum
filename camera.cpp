@@ -8,15 +8,11 @@ Camera::Camera(int width, int height) {
 
 //Sets camera position and orientation
 VertexUniformBufferObject Camera::GetUpdatedMatrix(float FOVdeg, float nearPlane, float farPlane) {
-	VertexUniformBufferObject ubo{};
+	vubo.view = glm::lookAt(position, position + orientation, up);
+	vubo.proj = glm::perspective(glm::radians(FOVdeg), float(width / height), nearPlane, farPlane);
+	vubo.proj[1][1] *= -1;
 
-	//ubo.model = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, -1.0f, 0.0f), up);
-	ubo.model = glm::mat4(1.0f);
-	ubo.view = glm::lookAt(position, position + orientation, up);
-	ubo.proj = glm::perspective(glm::radians(FOVdeg), float(width / height), nearPlane, farPlane);
-	ubo.proj[1][1] *= -1;
-
-	return ubo;
+	return vubo;
 }
 
 //Updates inputs for the camera

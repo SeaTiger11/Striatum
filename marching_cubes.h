@@ -48,9 +48,7 @@ struct Vertex {
 
 struct modelData {
 	std::vector<Vertex> vertices;
-	std::vector<uint32_t> indices;
 	VkDeviceSize verticesOffset;
-	VkDeviceSize indicesOffset;
 	VkDeviceSize maxSize;
 	glm::vec3 position;
 };
@@ -67,20 +65,35 @@ struct rayCastHit {
     }
 };
 
+struct colorOveride {
+    glm::vec3 minPosition;
+    glm::vec3 maxPosition;
+    glm::vec3 color;
+
+    colorOveride(glm::vec3 inPosition, glm::vec3 inMaxPosition, glm::vec3 inColor) {
+        minPosition = inPosition;
+        maxPosition = inMaxPosition;
+        color = inColor;
+    }
+};
+
 const float voxelScale = 2.0f;
 
-class voxelSphere {
+class voxelObj {
 	public:
 		glm::uvec3 scale;
-		float realRadius, currentRadius;
+		float realRadius, currentRadius, maxRadius;
 
-		voxelSphere(glm::vec3 inPosition, float inRadius, VkDeviceSize inOffset);
+		voxelObj(glm::vec3 inPosition, float inRadius, VkDeviceSize inOffset, int inMatType = 0);
 		modelData generateSphere();
+        modelData generateEnemy();
 		modelData updateMarchingCubes();
 		modelData getData();
+        void setPosition(glm::vec3 newPosition);
 		bool shouldUpdate();
 
-        rayCastHit rayCast(glm::vec3 position, glm::vec3 orientation);
+        rayCastHit rayCast(glm::vec3 origin, glm::vec3 direction);
+        bool tryExplode(glm::vec3 position, float explosionRadius);
 
 	private:
 		const float updatePoint = 0.25f;
@@ -89,19 +102,31 @@ class voxelSphere {
 		glm::vec3 center;
 		VkDeviceSize offset;
 
+        std::array<colorOveride, 6> colorOverides = {
+            colorOveride(glm::vec3(0.3f), glm::vec3(0.7f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.8f, 0.2f, 0.6f), glm::vec3(1.1f, 0.4f, 0.8f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.8f, 0.6f, 0.6f), glm::vec3(1.1f, 0.8f, 0.8f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.8f, 0.2f, 0.2f), glm::vec3(1.1f, 0.8f, 0.35f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.8f, 0.2f, 0.1f), glm::vec3(1.1f, 0.35f, 0.2f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.8f, 0.65f, 0.1f), glm::vec3(1.1f, 0.8f, 0.2f), glm::vec3(0.0f, 0.0f, 0.0f)),
+        };
+
         const float ironSize = 0.3f, ironCutOff = 0.7f;
+        int matType; // 0 = normal, 1 = solid iron, 2 = enemy
 
 		float* grid;
 
         rayCastHit rayCastMiss = rayCastHit(false, nullptr, 0);
 
-		float& getVoxel(glm::uvec3 pos);
+		float* getVoxel(glm::uvec3 pos);
+        glm::vec3 getColor(glm::vec3 pos);
 		void addVertex(glm::vec3 pos, glm::vec3 normal, glm::vec3 color, glm::vec2 texCoord);
 		void processCube(glm::uvec3 pos);
 
 		glm::vec3 computeNormal(glm::vec3 a, glm::vec3 b, glm::vec3 c);
 
 		std::optional<float> rayAABB(glm::vec3 gridMin, glm::vec3 gridMax, glm::vec3 origin, glm::vec3 direction);
+        bool AABB(glm::vec3 minPosition, glm::vec3 maxPosition, glm::vec3 position);
 };
 
 #endif
