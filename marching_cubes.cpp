@@ -280,8 +280,9 @@ const siv::PerlinNoise perlin;
 
 constexpr int MAX_RAYCAST_STEPS = 128;
 
-voxelObj::voxelObj(glm::vec3 inPosition, float inRadius, VkDeviceSize inOffset, int inMatType) {
+voxelObj::voxelObj(glm::vec3 inPosition, float inRadius, VkDeviceSize inOffset, int inMatType, bool isStatic) {
     model.position = inPosition;
+    if (isStatic) staticPos = inPosition;
     currentRadius = inRadius;
     realRadius = inRadius;
     maxRadius = inRadius;
@@ -321,11 +322,13 @@ modelData voxelObj::generateEnemy() {
                     *getVoxel({ x, y, z }) = -1;
                     continue;
                 }
-
+                health += 1;
                 *getVoxel({ x, y, z }) = 1;
             }
         }
     }
+
+    maxHealth = health;
 
     updateMarchingCubes();
 
@@ -351,7 +354,7 @@ modelData voxelObj::getData() {
 }
 
 void voxelObj::setPosition(glm::vec3 newPosition) {
-    model.position = newPosition / voxelScale;
+    staticPos = newPosition / voxelScale;
 }
 
 bool voxelObj::shouldUpdate() {
@@ -363,7 +366,7 @@ bool voxelObj::shouldUpdate() {
 }
 
 float* voxelObj::getVoxel(glm::uvec3 pos) {
-    if (pos.x < 0 || pos.x > scale.x || pos.y < 0 || pos.y > scale.y || pos.z < 0 || pos.z > scale.z)
+    if (pos.x < 0 || pos.x >= scale.x || pos.y < 0 || pos.y >= scale.y || pos.z < 0 || pos.z >= scale.z)
         return nullptr;
 
 	return &grid[pos.x + pos.y * scale.x + pos.z * scale.x * scale.y];
@@ -396,7 +399,7 @@ glm::vec3 voxelObj::getColor(glm::vec3 pos) {
 void voxelObj::addVertex(glm::vec3 pos, glm::vec3 normal, glm::vec3 color, glm::vec2 texCoord) {
     color = getColor(pos);
 
-    pos = (pos + model.position - center) * voxelScale;
+    pos += staticPos - center;
 
     Vertex vertex = { pos, normal, color, texCoord };
 
@@ -479,8 +482,8 @@ rayCastHit voxelObj::rayCast(glm::vec3 origin, glm::vec3 direction) {
     direction = normalize(direction);
     const glm::vec3 fscale = glm::vec3(scale);
 
-    const glm::vec3 gridMin = (model.position - center) * voxelScale;
-    const glm::vec3 gridMax = (fscale + model.position - center) * voxelScale;
+    const glm::vec3 gridMin = (staticPos - center) * voxelScale;
+    const glm::vec3 gridMax = (fscale + staticPos - center) * voxelScale;
 
     const std::optional<float> entryT = rayAABB(gridMin, gridMax, origin, direction);
     if (!entryT.has_value()) return rayCastMiss;
@@ -542,7 +545,7 @@ rayCastHit voxelObj::rayCast(glm::vec3 origin, glm::vec3 direction) {
 }
 
 bool voxelObj::tryExplode(glm::vec3 position, float explosionRadius) {
-    glm::vec3 localPos = glm::vec3((position / glm::vec3(voxelScale)) - model.position + center);
+    glm::vec3 localPos = (position / glm::vec3(voxelScale)) - model.position + center;
     float* voxel = getVoxel(localPos);
     if (voxel == nullptr || *voxel < 0)
         return false;
@@ -551,8 +554,13 @@ bool voxelObj::tryExplode(glm::vec3 position, float explosionRadius) {
         for (float y = 0.0f; y < scale.y; y++) {
             for (float z = 0.0f; z < scale.z; z++) {
                 float distance = glm::distance(glm::vec3(x, y, z), localPos);
-                if (explosionRadius - distance > 0)
-                    *getVoxel({ x, y, z }) = -1;
+
+                float* voxel = getVoxel({ x, y, z });
+
+                if (explosionRadius - distance > 0 && *voxel > 0) {
+                    *voxel = -1.0f;
+                    health -= 1.0f;
+                }
             }
         }
     }

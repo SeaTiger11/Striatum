@@ -84,7 +84,9 @@ class voxelObj {
 		glm::uvec3 scale;
 		float realRadius, currentRadius, maxRadius;
 
-		voxelObj(glm::vec3 inPosition, float inRadius, VkDeviceSize inOffset, int inMatType = 0);
+        glm::mat4 modelMatrix = glm::mat4(1.0f);
+
+		voxelObj(glm::vec3 inPosition, float inRadius, VkDeviceSize inOffset, int inMatType = 0, bool isStatic = true);
 		modelData generateSphere();
         modelData generateEnemy();
 		modelData updateMarchingCubes();
@@ -95,7 +97,11 @@ class voxelObj {
         rayCastHit rayCast(glm::vec3 origin, glm::vec3 direction);
         bool tryExplode(glm::vec3 position, float explosionRadius);
 
+        int health = 0, maxHealth;
+
 	private:
+        glm::vec3 staticPos = glm::vec3(0.0f);
+
 		const float updatePoint = 0.25f;
 
 		modelData model;
@@ -104,11 +110,11 @@ class voxelObj {
 
         std::array<colorOveride, 6> colorOverides = {
             colorOveride(glm::vec3(0.3f), glm::vec3(0.7f), glm::vec3(1.0f, 0.0f, 0.0f)),
-            colorOveride(glm::vec3(0.8f, 0.2f, 0.6f), glm::vec3(1.1f, 0.4f, 0.8f), glm::vec3(0.0f, 0.0f, 0.0f)),
-            colorOveride(glm::vec3(0.8f, 0.6f, 0.6f), glm::vec3(1.1f, 0.8f, 0.8f), glm::vec3(0.0f, 0.0f, 0.0f)),
-            colorOveride(glm::vec3(0.8f, 0.2f, 0.2f), glm::vec3(1.1f, 0.8f, 0.35f), glm::vec3(0.0f, 0.0f, 0.0f)),
-            colorOveride(glm::vec3(0.8f, 0.2f, 0.1f), glm::vec3(1.1f, 0.35f, 0.2f), glm::vec3(0.0f, 0.0f, 0.0f)),
-            colorOveride(glm::vec3(0.8f, 0.65f, 0.1f), glm::vec3(1.1f, 0.8f, 0.2f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.9f, 0.2f, 0.6f), glm::vec3(1.1f, 0.4f, 0.8f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.9f, 0.6f, 0.6f), glm::vec3(1.1f, 0.8f, 0.8f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.9f, 0.2f, 0.2f), glm::vec3(1.1f, 0.8f, 0.35f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.9f, 0.2f, 0.1f), glm::vec3(1.1f, 0.35f, 0.2f), glm::vec3(0.0f, 0.0f, 0.0f)),
+            colorOveride(glm::vec3(0.9f, 0.65f, 0.1f), glm::vec3(1.1f, 0.8f, 0.2f), glm::vec3(0.0f, 0.0f, 0.0f)),
         };
 
         const float ironSize = 0.3f, ironCutOff = 0.7f;

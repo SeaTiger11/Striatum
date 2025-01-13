@@ -879,15 +879,15 @@ private:
 	void loadVoxels() {
 		VkDeviceSize offset = 0;
 
-		voxelObj enemy = voxelObj(glm::vec3(-50.0f, -30.0f, 15.0f), 5.0f, 0, 2);
+		voxelObj enemy = voxelObj(glm::vec3(-50.0f, -30.0f, 15.0f), 5.0f, 0, 2, false);
 		enemy.generateEnemy();
 		enemies.push_back(enemy);
 
-		voxelObj enemy2 = voxelObj(glm::vec3(-50.0f, 0.0f, 20.0f), 10.0f, 0, 2);
+		voxelObj enemy2 = voxelObj(glm::vec3(-50.0f, 0.0f, 20.0f), 10.0f, 0, 2, false);
 		enemy2.generateEnemy();
 		enemies.push_back(enemy2);
 
-		voxelObj enemy3 = voxelObj(glm::vec3(-50.0f, 30.0f, 15.0f), 5.0f, 0, 2);
+		voxelObj enemy3 = voxelObj(glm::vec3(-50.0f, 30.0f, 15.0f), 5.0f, 0, 2, false);
 		enemy3.generateEnemy();
 		enemies.push_back(enemy3);
 
@@ -1526,11 +1526,21 @@ private:
 
 		vubo = camera->GetUpdatedMatrix(45.0f, 0.1f, 1000.0f);
 
-		vubo.models[0] = glm::mat4(1.0f);
+		glm::mat4 defaultModel = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
+
+		vubo.models[0] = defaultModel;
 		memcpy(vertexUniformBuffersMapped[currentImage * uniqueUniformCount], &vubo, sizeof(vubo));
 
 		for (int i = 0; i < enemies.size(); i++) {
-			vubo.models[0] = glm::mat4(1.0f);
+			if (enemies[i].health > enemies[i].maxHealth / 2) {
+				modelData model = enemies[i].getData();
+				glm::mat4 rotation = glm::inverse(glm::lookAt(model.position, camera->position / glm::vec3(2.0f), camera->up));
+				glm::mat4 rotationOffset1 = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 2.0f, 0.0f));
+				glm::mat4 rotationOffset2 = glm::rotate(glm::mat4(1.0f), glm::radians(270.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+				enemies[i].modelMatrix = defaultModel * rotation * rotationOffset1 * rotationOffset2;
+			}
+			vubo.models[0] = enemies[i].modelMatrix;
 
 			memcpy(vertexUniformBuffersMapped[currentImage * uniqueUniformCount + 1 + i], &vubo, sizeof(vubo));
 		}
@@ -1542,7 +1552,7 @@ private:
 		memcpy(vertexUniformBuffersMapped[currentImage * uniqueUniformCount + enemies.size() + 1], &vubo, sizeof(vubo));
 
 		vubo.view = initialView;
-		vubo.models[0] = glm::mat4(1.0f);
+		vubo.models[0] = defaultModel;
 		memcpy(vertexUniformBuffersMapped[currentImage * uniqueUniformCount + enemies.size() + 2], &vubo, sizeof(vubo));
 
 		FragmentUniformBufferObject fubo = { camera->position };
@@ -1969,24 +1979,29 @@ private:
 			currentCollisionCheckCooldown -= deltaTime;
 
 			if (currentMiningCooldown <= 0 && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
-				mine();
-
 				currentMiningCooldown = miningCooldown;
+
+				mine();
 			}
 
 			if (ironStored > minIronStored + attackIronCost && currentAttackCooldown <= 0 && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
-				shoot();
-
 				currentAttackCooldown = attackCooldown;
+				
+				shoot();
 			}
 
 			if (currentCollisionCheckCooldown <= 0) {
+				currentCollisionCheckCooldown = collisionCheckCooldown;
+
 				for (int i = 0; i < glm::min(currentAttackCount, maxNumberOfAttacks); i++) {
 					if (attackInfos[i] == glm::mat4(0.0f)) continue;
 
 					attackInfos[i] = glm::translate(attackInfos[i], glm::vec3(0.0f, 0.0f, -1000.0 * collisionCheckCooldown));
 
 					glm::vec3 attackPos = glm::vec3(attackInfos[i][3]);
+
+					if (glm::distance(attackPos, camera->position) > 1000.0f)
+						attackInfos[i] = glm::mat4(0.0f);
 
 					for (voxelObj asteroid : asteroids) {
 						bool hit = asteroid.tryExplode(attackPos, explosionStrength);
@@ -2010,8 +2025,6 @@ private:
 						updateVoxelObj(enemyVertexBuffers[e], enemies[e]);
 					}
 				}
-
-				currentCollisionCheckCooldown = collisionCheckCooldown;
 			}
 
 			drawFrame();
